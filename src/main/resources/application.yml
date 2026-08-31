@@ -1,0 +1,6 @@
+spring:
+  threads:
+    virtual:
+      enabled: true
+  application:
+    name: paralelismo-virthr
