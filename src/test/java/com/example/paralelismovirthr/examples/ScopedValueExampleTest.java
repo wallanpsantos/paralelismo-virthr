@@ -6,6 +6,11 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * Garante a imutabilidade e a transmissão correta de contexto via ScopedValue no Java 25.
+ * Valida a herança de bindings no start de Virtual Threads filhas criadas dentro do escopo lexical
+ * e assegura que fora do bloco delimitado os valores permaneçam estritamente unbound.
+ */
 @DisplayName("Testes - ScopedValue (JEP 506, final no Java 25)")
 class ScopedValueExampleTest {
 

@@ -16,6 +16,11 @@ import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante que instâncias de Virtual Threads comportem-se como daemon e virtuais no Java 25.
+ * Valida a execução ordenada de tarefas em executores com ThreadFactory nomeada e o padrão
+ * de fan-out com limites de timeout explícitos sem a necessidade de APIs de preview.
+ */
 @DisplayName("Testes - Fundamentos de Virtual Threads")
 class VirtualThreadBasicsExampleTest {
 

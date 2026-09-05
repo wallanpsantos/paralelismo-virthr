@@ -1,10 +1,17 @@
+# Configuração de concorrência e propriedades da aplicação (Java 25 LTS / Spring Boot 4.1.1).
+# Em containers/K8s, garanta CPU limit >= 2 para assegurar a ergonomia do GC e do scheduler.
 spring:
   application:
+    # Identificador único da aplicação nos logs, métricas e tracing distribuído.
     name: paralelismo-virthr
   threads:
     virtual:
+      # Habilita Virtual Threads no Tomcat embutido e no AsyncTaskExecutor padrão (JDK 21+).
+      # Atenção: NÃO habilita @Async sozinho; exige @EnableAsync explícito na configuração.
       enabled: true
-  # Mantém o AsyncTaskExecutor auto-configurado mesmo com o bean ExecutorService de VT.
   task:
     execution:
+      # Força a criação do AsyncTaskExecutor auto-configurado do Boot em Virtual Threads,
+      # impedindo que a presença do bean próprio ExecutorService faça a auto-configuração recuar.
       mode: force
+

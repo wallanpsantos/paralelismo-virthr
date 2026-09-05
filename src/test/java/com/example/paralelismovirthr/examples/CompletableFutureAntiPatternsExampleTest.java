@@ -15,6 +15,11 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante a eficácia das correções dos anti-padrões clássicos de concorrência com VTs.
+ * Valida a composição assíncrona com thenCompose sem bloqueios de thread, o processamento de lotes
+ * de I/O com allOf em substituição ao parallelStream e a segurança de formato imutável sem ThreadLocal.
+ */
 @DisplayName("Testes - correções dos anti-padrões de CF")
 class CompletableFutureAntiPatternsExampleTest {
 

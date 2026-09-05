@@ -11,6 +11,11 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante o funcionamento correto de pipelines de CompletableFuture operando com Virtual Threads.
+ * Valida transformações encadeadas, interceptação de falhas com exceptionally e handle,
+ * injeção de valores padrão via completeOnTimeout e combinação paralela com thenCombine.
+ */
 @DisplayName("Testes - fundamentos de CompletableFuture")
 class CompletableFutureBasicsExampleTest {
 

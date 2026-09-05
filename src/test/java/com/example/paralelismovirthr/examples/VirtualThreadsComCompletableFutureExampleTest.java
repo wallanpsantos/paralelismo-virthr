@@ -5,6 +5,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante o funcionamento integrado dos ramos da estratégia entre Virtual Threads e CompletableFuture.
+ * Valida a recuperação direta de I/O em VT, o acionamento determinístico de fallback sob timeout,
+ * a combinação de fontes de dados via thenCombine e o processamento de fan-out com recuperação parcial.
+ */
 @DisplayName("Testes - VT + CompletableFuture")
 class VirtualThreadsComCompletableFutureExampleTest {
 

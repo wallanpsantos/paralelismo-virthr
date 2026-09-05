@@ -7,18 +7,37 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
- * CompletableFuture orquestra resultados. Não substitui VT em I/O simples.
+ * O que é: guia didático sobre orquestração assíncrona de pipelines com {@link CompletableFuture} sobre Virtual Threads.
  * <p>
- * Sempre: executor explícito em I/O, timeout, handler terminal.
- * {@code orTimeout}/{@code completeOnTimeout} completam o future; a tarefa em
- * andamento não é cancelada automaticamente — bound real exige timeout no cliente HTTP/JDBC
- * ou {@code Future.cancel(true)} no trabalho que você controla.
- * {@code anyOf} também não cancela o perdedor.
+ * Mecânica: CompletableFuture define o grafo de estágios (stages) e dependências de dados;
+ * as Virtual Threads fornecem a escala de execução sem bloquear platform threads do SO.
+ * Pense no Future como uma senha de pedido: ele avisa quando o resultado estiver pronto sem que você fique parado no balcão.
+ * <p>
+ * Quando usar: para compor resultados heterogêneos em paralelo (ex.: chamar múltiplos microserviços independentes).
+ * <p>
+ * Quando não usar: para chamadas de I/O simples e sequenciais em controladores MVC, onde o código síncrono
+ * direto sobre Virtual Threads é muito mais legível; nunca use métodos assíncronos sem executor explícito.
+ * <p>
+ * Risco: supor que {@code orTimeout} ou {@code completeOnTimeout} cancelam a thread ou o socket em andamento
+ * (o I/O subjacente continua rodando até o timeout do cliente downstream), ou assumir que {@code allOf} cancela os irmãos na falha.
+ * <p>
+ * Como observar: inspecionar o nome da thread nos callbacks e auditar exceções através de handlers terminais.
+ * <p>
+ * Leitura: Rahman cap. 1, 4 (concorrência não estruturada) e 6 (orquestração assíncrona vs reativo).
  */
 public class CompletableFutureBasicsExample {
 
     private static final ThreadFactory factory = Thread.ofVirtual().name("vt-cf-basics-", 1).factory();
 
+    /**
+     * Executa a série demonstrativa de padrões de orquestração com CompletableFuture.
+     * <p>
+     * Ponto: coordena exemplos de disparo assíncrono, encadeamento, recuperação de erros e combinação.
+     * Invariante: o {@link ExecutorService} per-task é compartilhado no bloco try-with-resources,
+     * garantindo o encerramento ordenado e drenagem das tarefas ao final da demonstração.
+     *
+     * @param args argumentos de linha de comando
+     */
     public static void main(String[] args) {
         try (ExecutorService executor = Executors.newThreadPerTaskExecutor(factory)) {
             exemploSupplyAsync(executor);
@@ -29,8 +48,17 @@ public class CompletableFutureBasicsExample {
         }
     }
 
-    private static void exemploSupplyAsync(ExecutorService executor) {
+    /**
+     * Demonstra a submissão assíncrona básica com executor explícito e tratamento terminal.
+     * <p>
+     * Ponto: ilustra o uso de {@code supplyAsync} com executor de virtual threads associado a timeout.
+     * Invariante: chamadas assíncronas com I/O devem sempre receber o executor explicitamente para evitar o {@code commonPool}.
+     *
+     * @param executor executor configurado em virtual threads
+     */
+    public static void exemploSupplyAsync(ExecutorService executor) {
         System.out.println("\n--- Exemplo: supplyAsync ---");
+        // supplyAsync com executor explícito de VT: sem executor o processamento cairia no ForkJoinPool.commonPool.
         CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(1000);
                     return "Resultado da operação lenta";
@@ -43,8 +71,17 @@ public class CompletableFutureBasicsExample {
         System.out.println("Resultado: " + result);
     }
 
-    private static void exemploEncadeamento(ExecutorService executor) {
+    /**
+     * Demonstra encadeamento e transformação de dados em múltiplos estágios do pipeline.
+     * <p>
+     * Ponto: encadeia transformações síncronas usando {@code thenApply} e consumo terminal com {@code thenAccept}.
+     * Invariante: {@code thenApply} executa na mesma thread do estágio anterior caso já finalizado, sem custo de troca de contexto.
+     *
+     * @param executor executor de virtual threads
+     */
+    public static void exemploEncadeamento(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Encadeamento ---");
+        // Encadeamento linear: cada estágio é disparado sequencialmente assim que o dado se torna disponível.
         CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(500);
                     return 10;
@@ -60,9 +97,18 @@ public class CompletableFutureBasicsExample {
                 .join();
     }
 
-    private static void exemploTratamentoDeErros(ExecutorService executor) {
+    /**
+     * Demonstra estratégias de tratamento de exceções com {@code exceptionally} e {@code handle}.
+     * <p>
+     * Ponto: contrasta fallback condicional na falha com interceptação unificada de valor e erro.
+     * Invariante: pipelines sem handler terminal propagam {@link java.util.concurrent.CompletionException} silenciosamente.
+     *
+     * @param executor executor de virtual threads
+     */
+    public static void exemploTratamentoDeErros(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Tratamento de Erros ---");
 
+        // exceptionally trata apenas exceções, retornando um valor substituto padrão (fallback).
         String resultExceptionally = CompletableFuture.<String>supplyAsync(() -> {
                     throw new RuntimeException("Erro forçado");
                 }, executor)
@@ -71,6 +117,7 @@ public class CompletableFutureBasicsExample {
                 .join();
         System.out.println("Com exceptionally: " + resultExceptionally);
 
+        // handle recebe tanto o resultado quanto a exceção, permitindo tradução e enriquecimento unificado.
         String resultHandle = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(100);
                     return "Sucesso!";
@@ -94,10 +141,19 @@ public class CompletableFutureBasicsExample {
                 .join();
     }
 
-    private static void exemploTimeout(ExecutorService executor) {
+    /**
+     * Demonstra comportamentos de timeout com {@code orTimeout} e {@code completeOnTimeout}.
+     * <p>
+     * Ponto: evidencia que o timeout afeta o Future, mas não cancela a thread ou o socket em andamento.
+     * Invariante: {@code orTimeout} completa com exceção; {@code completeOnTimeout} completa com valor default de contingência.
+     *
+     * @param executor executor de virtual threads
+     */
+    public static void exemploTimeout(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Timeouts ---");
 
         try {
+            // orTimeout completa o Future excepcionalmente; a tarefa submetida continua até o encerramento natural do seu I/O.
             CompletableFuture.supplyAsync(() -> {
                         simulateSlowOperation(3000);
                         return "Dados lentos";
@@ -108,6 +164,7 @@ public class CompletableFutureBasicsExample {
             System.out.println("orTimeout acionado: " + e.getMessage());
         }
 
+        // completeOnTimeout fornece valor default sem propagar exceção caso o tempo limite seja atingido.
         String fallback = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(3000);
                     return "Dados lentos";
@@ -118,7 +175,15 @@ public class CompletableFutureBasicsExample {
         System.out.println("completeOnTimeout retornou: " + fallback);
     }
 
-    private static void exemploCombinacoes(ExecutorService executor) {
+    /**
+     * Demonstra combinação de futuros através de {@code thenCombine}, {@code allOf} e {@code anyOf}.
+     * <p>
+     * Ponto: expõe os desafios da concorrência não estruturada: {@code allOf} e {@code anyOf} não cancelam tarefas ativas remanescentes.
+     * Invariante: se uma das tarefas de {@code allOf} falhar, as demais continuam rodando; {@code anyOf} não aborta o perdedor da corrida.
+     *
+     * @param executor executor de virtual threads
+     */
+    public static void exemploCombinacoes(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Combinações ---");
 
         CompletableFuture<String> c1 = CompletableFuture.supplyAsync(() -> {
@@ -131,6 +196,7 @@ public class CompletableFutureBasicsExample {
             return "World";
         }, executor).orTimeout(1, TimeUnit.SECONDS);
 
+        // thenCombine une dois resultados independentes quando ambos estiverem concluídos.
         c1.thenCombine(c2, (res1, res2) -> res1 + " " + res2)
                 .exceptionally(ex -> "Erro ao combinar: " + ex.getMessage())
                 .thenAccept(System.out::println)
@@ -146,6 +212,7 @@ public class CompletableFutureBasicsExample {
             return "Task B";
         }, executor).orTimeout(1, TimeUnit.SECONDS);
 
+        // allOf espera todos os futuros, mas não tem escopo pai: falha em um não cancela automaticamente o outro.
         CompletableFuture.allOf(taskA, taskB)
                 .orTimeout(2, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
@@ -165,6 +232,7 @@ public class CompletableFutureBasicsExample {
             return "Mais Lento";
         }, executor).orTimeout(1, TimeUnit.SECONDS);
 
+        // anyOf retorna o primeiro a responder, mas deixa a tarefa perdedora em execução até o final.
         Object primeiro = CompletableFuture.anyOf(fastTask, slowTask)
                 .orTimeout(1, TimeUnit.SECONDS)
                 .exceptionally(ex -> "Erro anyOf: " + ex.getMessage())

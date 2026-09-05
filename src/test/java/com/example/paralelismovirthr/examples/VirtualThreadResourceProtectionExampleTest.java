@@ -14,6 +14,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante que o Semaphore limite efetivamente o pico de acessos concorrentes a recursos finitos.
+ * Valida se a concorrência instantânea não ultrapassa os permits configurados e se o encerramento
+ * das tarefas devolve todas as conexões sem vazamentos no pool sob Virtual Threads massivas.
+ */
 @DisplayName("Testes - Proteção de recursos com Semaphore")
 class VirtualThreadResourceProtectionExampleTest {
 

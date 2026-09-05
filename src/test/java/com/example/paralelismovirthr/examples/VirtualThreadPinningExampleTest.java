@@ -14,6 +14,11 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Garante que o controle de concorrência com ReentrantLock opere sem impasses ou starvation.
+ * Valida a sincronização segura de incrementos através de tryLock temporizado e a execução
+ * íntegra do exemplo de exclusão mútua sobre Virtual Threads no Java 25 (JEP 491).
+ */
 @DisplayName("Testes - ReentrantLock com Virtual Threads (Java 25 / JEP 491)")
 class VirtualThreadPinningExampleTest {
 
