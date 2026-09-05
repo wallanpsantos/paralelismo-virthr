@@ -61,7 +61,7 @@ src/main/java/com/example/paralelismovirthr/
 
 ## Como executar
 
-Requer **JDK 25**. O wrapper Maven do repositório original (`mvnw`) pode ser copiado de volta se você aplicar estes arquivos sobre o clone.
+Requer **JDK 25**. O wrapper Maven (`mvnw` / `mvnw.cmd`) já está no repositório.
 
 ```bash
 ./mvnw test
@@ -73,6 +73,14 @@ Requer **JDK 25**. O wrapper Maven do repositório original (`mvnw`) pode ser co
 ./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureBasicsExample"
 ./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureAntiPatternsExample"
 ./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadsComCompletableFutureExample"
+```
+
+No Windows: `.\mvnw.cmd` no lugar de `./mvnw`.
+
+Depois de alterar `.gitattributes`, normalize uma vez:
+
+```bash
+git add --renormalize .
 ```
 
 ---

@@ -1,2 +1,11 @@
-/mvnw text eol=lf
+# Objetos Git em LF. Evita aviso LF/CRLF no Windows e diff ruidoso no CI.
+* text=auto eol=lf
+
+*.bat text eol=crlf
 *.cmd text eol=crlf
+
+*.jar binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
