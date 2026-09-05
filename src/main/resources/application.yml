@@ -1,6 +1,10 @@
 spring:
+  application:
+    name: paralelismo-virthr
   threads:
     virtual:
       enabled: true
-  application:
-    name: paralelismo-virthr
+  # Mantém o AsyncTaskExecutor auto-configurado mesmo com o bean ExecutorService de VT.
+  task:
+    execution:
+      mode: force

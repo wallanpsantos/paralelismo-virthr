@@ -7,22 +7,16 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
- * CompletableFutureBasicsExample
+ * CompletableFuture orquestra resultados. Não substitui VT em I/O simples.
  * <p>
- * O que é: Uma API para compor operações assíncronas de forma funcional.
- * <p>
- * Quando usar:
- * - Para combinar resultados de múltiplas operações assíncronas independentes.
- * - Para criar pipelines de processamento de dados (encadeamento).
- * - Para integrar com APIs assíncronas baseadas em callbacks.
- * <p>
- * Quando NÃO usar:
- * - Para simples operações de I/O bloqueante onde o código imperativo com Virtual Threads
- * (apenas chamadas diretas) é muito mais fácil de ler, debugar e manter.
+ * Sempre: executor explícito em I/O, timeout, handler terminal.
+ * {@code orTimeout}/{@code completeOnTimeout} completam o future; a tarefa em
+ * andamento não é cancelada automaticamente — bound real exige timeout no cliente HTTP/JDBC
+ * ou {@code Future.cancel(true)} no trabalho que você controla.
+ * {@code anyOf} também não cancela o perdedor.
  */
 public class CompletableFutureBasicsExample {
 
-    // Criação de ThreadFactory com threads virtuais nomeadas para melhor observabilidade
     private static final ThreadFactory factory = Thread.ofVirtual().name("vt-cf-basics-", 1).factory();
 
     public static void main(String[] args) {
@@ -37,17 +31,14 @@ public class CompletableFutureBasicsExample {
 
     private static void exemploSupplyAsync(ExecutorService executor) {
         System.out.println("\n--- Exemplo: supplyAsync ---");
-        // Inicia uma operação assíncrona, usando o executor explícito (NUNCA usar sem executor para I/O)
         CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(1000);
                     return "Resultado da operação lenta";
                 }, executor)
-                .orTimeout(2, TimeUnit.SECONDS) // Sempre adicionar timeout para operações bloqueantes
-                .exceptionally(ex -> "Erro: " + ex.getMessage()); // Tratamento terminal de erro
+                .orTimeout(2, TimeUnit.SECONDS)
+                .exceptionally(ex -> "Erro: " + ex.getMessage());
 
         System.out.println("Operação iniciada. Fazendo outras coisas...");
-
-        // join() bloqueia até que o resultado esteja disponível
         String result = future.join();
         System.out.println("Resultado: " + result);
     }
@@ -59,10 +50,10 @@ public class CompletableFutureBasicsExample {
                     return 10;
                 }, executor)
                 .orTimeout(1, TimeUnit.SECONDS)
-                .thenApply(valor -> valor * 2) // Transforma o dado
+                .thenApply(valor -> valor * 2)
                 .thenApply(valor -> "Valor processado: " + valor)
-                .thenAccept(System.out::println) // Consome o dado
-                .exceptionally(ex -> { // Tratamento terminal
+                .thenAccept(System.out::println)
+                .exceptionally(ex -> {
                     System.err.println("Falha no pipeline: " + ex.getMessage());
                     return null;
                 })
@@ -72,7 +63,6 @@ public class CompletableFutureBasicsExample {
     private static void exemploTratamentoDeErros(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Tratamento de Erros ---");
 
-        // a. exceptionally() - captura e fornece um valor de fallback
         String resultExceptionally = CompletableFuture.<String>supplyAsync(() -> {
                     throw new RuntimeException("Erro forçado");
                 }, executor)
@@ -81,22 +71,15 @@ public class CompletableFutureBasicsExample {
                 .join();
         System.out.println("Com exceptionally: " + resultExceptionally);
 
-        // b. handle() - trata sucesso e erro no mesmo local
         String resultHandle = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(100);
                     return "Sucesso!";
                 }, executor)
                 .orTimeout(1, TimeUnit.SECONDS)
-                .handle((res, ex) -> {
-                    if (ex != null) {
-                        return "Falhou: " + ex.getMessage();
-                    }
-                    return "Sucesso: " + res;
-                })
+                .handle((res, ex) -> ex != null ? "Falhou: " + ex.getMessage() : "Sucesso: " + res)
                 .join();
         System.out.println("Com handle: " + resultHandle);
 
-        // c. Pipeline com único handler terminal
         CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(100);
                     return "Passo 1";
@@ -114,10 +97,9 @@ public class CompletableFutureBasicsExample {
     private static void exemploTimeout(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Timeouts ---");
 
-        // orTimeout - Falha com TimeoutException
         try {
             CompletableFuture.supplyAsync(() -> {
-                        simulateSlowOperation(3000); // Demora mais que o timeout
+                        simulateSlowOperation(3000);
                         return "Dados lentos";
                     }, executor)
                     .orTimeout(1, TimeUnit.SECONDS)
@@ -126,7 +108,6 @@ public class CompletableFutureBasicsExample {
             System.out.println("orTimeout acionado: " + e.getMessage());
         }
 
-        // completeOnTimeout - Retorna um valor padrão
         String fallback = CompletableFuture.supplyAsync(() -> {
                     simulateSlowOperation(3000);
                     return "Dados lentos";
@@ -140,8 +121,6 @@ public class CompletableFutureBasicsExample {
     private static void exemploCombinacoes(ExecutorService executor) {
         System.out.println("\n--- Exemplo: Combinações ---");
 
-        // a. thenCombine - combina dois futures independentes
-        // Sem .exceptionally() prematuro para demonstrar a propagação e tratamento do pipeline combinado
         CompletableFuture<String> c1 = CompletableFuture.supplyAsync(() -> {
             simulateSlowOperation(500);
             return "Hello";
@@ -157,7 +136,6 @@ public class CompletableFutureBasicsExample {
                 .thenAccept(System.out::println)
                 .join();
 
-        // b. allOf - espera múltiplos futures e propaga erro se qualquer um falhar
         CompletableFuture<String> taskA = CompletableFuture.supplyAsync(() -> {
             simulateSlowOperation(200);
             return "Task A";
@@ -168,16 +146,15 @@ public class CompletableFutureBasicsExample {
             return "Task B";
         }, executor).orTimeout(1, TimeUnit.SECONDS);
 
-        CompletableFuture<Void> todos = CompletableFuture.allOf(taskA, taskB)
+        CompletableFuture.allOf(taskA, taskB)
                 .orTimeout(2, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
                     System.err.println("Erro no allOf: " + ex.getMessage());
                     return null;
-                });
-        todos.join();
+                })
+                .join();
         System.out.println("Todos finalizados: " + taskA.join() + ", " + taskB.join());
 
-        // c. anyOf - o primeiro que terminar vence (retorna Object com o resultado da mais rápida)
         CompletableFuture<String> fastTask = CompletableFuture.supplyAsync(() -> {
             simulateSlowOperation(100);
             return "Mais Rápido";
@@ -188,10 +165,12 @@ public class CompletableFutureBasicsExample {
             return "Mais Lento";
         }, executor).orTimeout(1, TimeUnit.SECONDS);
 
-        CompletableFuture<Object> primeiro = CompletableFuture.anyOf(fastTask, slowTask)
+        Object primeiro = CompletableFuture.anyOf(fastTask, slowTask)
                 .orTimeout(1, TimeUnit.SECONDS)
-                .exceptionally(ex -> "Erro anyOf: " + ex.getMessage());
-        System.out.println("O primeiro completou com: " + primeiro.join());
+                .exceptionally(ex -> "Erro anyOf: " + ex.getMessage())
+                .join();
+        System.out.println("O primeiro completou com: " + primeiro);
+        System.out.println("anyOf não cancela a tarefa lenta — ela segue até o fim.");
     }
 
     private static void simulateSlowOperation(int millis) {

@@ -9,5 +9,4 @@ class ParalelismoVirthrApplicationTests {
     @Test
     void contextLoads() {
     }
-
 }

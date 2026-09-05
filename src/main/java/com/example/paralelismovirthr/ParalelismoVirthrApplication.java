@@ -9,5 +9,4 @@ public class ParalelismoVirthrApplication {
     public static void main(String[] args) {
         SpringApplication.run(ParalelismoVirthrApplication.class, args);
     }
-
 }

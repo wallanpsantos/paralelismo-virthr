@@ -1,140 +1,108 @@
-# ⚡ Concorrência Moderna e Paralelismo no Java 21 LTS
+# Concorrência Moderna e Paralelismo no Java 25 LTS
 
-[![Java](https://img.shields.io/badge/Java-21%20LTS-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Project Loom](https://img.shields.io/badge/Project%20Loom-JEP%20444-blue.svg)](https://openjdk.org/jeps/444)
+[![Java](https://img.shields.io/badge/Java-25%20LTS-orange.svg)](https://openjdk.org/projects/jdk/25/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Virtual Threads](https://img.shields.io/badge/Virtual%20Threads-JEP%20444-blue.svg)](https://openjdk.org/jeps/444)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-23%20Passing-success.svg)](#-executando-os-testes)
 
-Projeto de referência prática e arquitetural para o ecossistema **Java 21 LTS** e **Spring Boot 4.x**, demonstrando como projetar sistemas de alto rendimento (*throughput*) e baixa latência combinando **Virtual Threads (Project Loom - JEP 444)**, **CompletableFuture**, **Structured Concurrency (JEP 453)** e **Scoped Values (JEP 446)**.
+Referência prática para **Java 25 LTS** e **Spring Boot 4.1.1**. Apenas APIs estáveis: sem `--enable-preview`, sem incubating.
 
----
+Trilha: **Virtual Threads** (JEP 444) + **ScopedValue** (JEP 506, final) + **CompletableFuture** com executor de VT. `StructuredTaskScope` permanece preview no JDK 25 (JEP 505) e **não entra neste repositório**.
 
-## 📖 Guia Didático Completo
-
-Para uma explicação aprofundada dos conceitos, analogias, mecanismos internos de *mount/unmount*, diagnóstico de *pinning* e métricas de produção, consulte o documento:
-
-👉 **[GUIA_CONCORRENCIA_JAVA21.md](GUIA_CONCORRENCIA_JAVA21.md)**
+Guia: **[GUIA_CONCORRENCIA_JAVA25.md](GUIA_CONCORRENCIA_JAVA25.md)**
 
 ---
 
-## 🎯 Visão Geral: O que muda com Java 21?
+## O que muda do Java 21 para o 25
 
-| Paradigma | Platform Threads (OS) | Virtual Threads (Loom) | CompletableFuture | Structured Concurrency |
-| :--- | :--- | :--- | :--- | :--- |
-| **Gerenciamento** | Kernel do SO (1:1) | JVM na Heap (M:N) | Callbacks / Executor | Escopo Léxico (`try-with-resources`) |
-| **Custo de Memória** | ~1 MB por thread | ~1 KB por thread | Objeto Future leve | Threads filhas efêmeras na heap |
-| **Estilo de Código** | Imperativo bloqueante | Imperativo sequencial | Funcional / Reativo | Imperativo Estruturado |
-| **Melhor Caso de Uso** | Tarefas CPU-bound | I/O massivo (HTTP, JDBC) | Pipelines & Fallbacks | Fan-Out/Fan-In com Fail-Fast |
-| **Tratamento de Erro** | `try / catch` | `try / catch` | `.exceptionally()`, `.handle()` | `scope.throwIfFailed()` |
+| Tema | Java 21 | Java 25 |
+| :--- | :--- | :--- |
+| Virtual Threads | GA (JEP 444) | GA, inalteradas na essência |
+| `synchronized` + I/O | Pinava a carrier | **Não pina** (JEP 491, desde o 24) |
+| `-Djdk.tracePinnedThreads` | Ferramenta principal | **Removida** no 24. Use JFR |
+| `ScopedValue` | Preview (JEP 446) | **Final** (JEP 506) |
+| `StructuredTaskScope` | Preview (JEP 453) | **Ainda preview** (JEP 505) — fora da trilha |
+| Pinning restante | `synchronized`, JNI, nativo | JNI, FFM, class loading, parte do file I/O Linux |
+
+`ReentrantLock.tryLock(timeout)` continua o padrão quando a seção crítica espera I/O: monitor não tem timeout e não é interrompível. Não é mais por pinning.
 
 ---
 
-## 📂 Estrutura do Repositório
+## Visão geral
+
+| Paradigma | Platform Threads | Virtual Threads | CompletableFuture |
+| :--- | :--- | :--- | :--- |
+| Gerenciamento | Kernel 1:1 | JVM M:N na heap | Callbacks + executor |
+| Memória | ~1 MB nativo | ~1 KB na heap, cresce sob demanda | Objeto Future |
+| Melhor caso | CPU-bound | I/O massivo | Composição, fallback, timeout |
+| Erro | `try/catch` | `try/catch` | `.exceptionally()` / `.handle()` |
+
+Fan-out estável: `newThreadPerTaskExecutor` em try-with-resources + `Future.get(timeout)`.
+
+---
+
+## Estrutura
 
 ```
-paralelismo-virthr/
-├── GUIA_CONCORRENCIA_JAVA21.md       # Guia definitivo de concorrência e padrões
-├── pom.xml                           # Configuração Maven (Java 21 / Spring Boot)
-└── src/
-    ├── main/java/com/example/paralelismovirthr/
-    │   ├── ParalelismoVirthrApplication.java
-    │   ├── config/
-    │   │   └── VirtualThreadConfig.java                     # Bean global de ExecutorService com VTs
-    │   └── examples/
-    │       ├── VirtualThreadBasicsExample.java              # Criação, Daemon, Escala (10k VTs) e Fan-Out
-    │       ├── VirtualThreadPinningExample.java             # Pinning com synchronized vs ReentrantLock
-    │       ├── VirtualThreadResourceProtectionExample.java  # Backpressure em banco/APIs com Semaphore
-    │       ├── CompletableFutureBasicsExample.java          # Pipelines, timeouts, fallbacks e combinações
-    │       ├── CompletableFutureAntiPatternsExample.java    # 8 anti-patterns comuns e como corrigi-los
-    │       └── VirtualThreadsComCompletableFutureExample.java # Combinação ideal: CompletableFuture + VTs
-    └── test/java/com/example/paralelismovirthr/
-        ├── ParalelismoVirthrApplicationTests.java           # Teste de contexto Spring Boot
-        └── examples/                                        # 22 testes unitários cobrindo todos os cenários
+src/main/java/com/example/paralelismovirthr/
+├── ParalelismoVirthrApplication.java
+├── config/VirtualThreadConfig.java
+└── examples/
+    ├── VirtualThreadBasicsExample.java
+    ├── VirtualThreadPinningExample.java
+    ├── VirtualThreadResourceProtectionExample.java
+    ├── ScopedValueExample.java
+    ├── CompletableFutureBasicsExample.java
+    ├── CompletableFutureAntiPatternsExample.java
+    └── VirtualThreadsComCompletableFutureExample.java
 ```
 
 ---
 
-## 🔬 Destaques Técnicos
+## Como executar
 
-### 1. Prevenção e Diagnóstico de Pinning
-No Java 21, blocos `synchronized` contendo operações bloqueantes de I/O provocam o *pinning* da Virtual Thread na *Carrier Thread* do SO.
-* **Solução:** Substituição segura por `ReentrantLock` com `try/finally`.
-* **Detecção em tempo de execução:** `-Djdk.tracePinnedThreads=short` e eventos JFR `jdk.VirtualThreadPinned`.
+Requer **JDK 25**. O wrapper Maven do repositório original (`mvnw`) pode ser copiado de volta se você aplicar estes arquivos sobre o clone.
 
-### 2. Backpressure e Proteção de Recursos Downstream
-Virtual Threads escalam até milhões, mas bancos de dados relacionais e pools de conexão (ex.: HikariCP) não.
-* **Solução:** Limitação com `Semaphore` alinhado ao pool máximo para evitar *pool exhaustion*.
-
-### 3. Integração Segura: CompletableFuture + Virtual Threads
-* Uso de `CompletableFuture.supplyAsync(task, vtExecutor)` e `thenApplyAsync(fn, vtExecutor)` para garantir que toda a cadeia assíncrona opere em threads leves sem contaminar a `ForkJoinPool.commonPool`.
-
-### 4. Structured Concurrency e Scoped Values
-* Demonstração conceitual e prática de `StructuredTaskScope.ShutdownOnFailure` para cancelamento em cascata (*short-circuiting*) e `ScopedValue` para substituição leve e imutável de `ThreadLocal`.
-
----
-
-## 🛠️ Como Executar
-
-### 🧪 Executando os Testes Automatizados
-
-```powershell
-# Windows (PowerShell / CMD)
-.\mvnw.cmd test
-
-# Linux / macOS
+```bash
 ./mvnw test
-```
 
-### 🚀 Executando os Exemplos Práticos
-
-```powershell
-# 1. Fundamentos e Escala de Virtual Threads (10.000 tarefas concorrentes)
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadBasicsExample"
-
-# 2. Diagnóstico de Pinning e ReentrantLock
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadPinningExample" -Djdk.tracePinnedThreads=short
-
-# 3. Proteção de Conexões Downstream com Semaphore
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadResourceProtectionExample"
-
-# 4. Pipelines e Combinações de CompletableFuture
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureBasicsExample"
-
-# 5. Anti-padrões e Correções
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureAntiPatternsExample"
-
-# 6. Orquestração CompletableFuture + Virtual Threads
-.\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadsComCompletableFutureExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadBasicsExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadPinningExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadResourceProtectionExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.ScopedValueExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureBasicsExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.CompletableFutureAntiPatternsExample"
+./mvnw test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadsComCompletableFutureExample"
 ```
 
 ---
 
-## ⚙️ Configuração no Spring Boot
-
-Para habilitar o uso automático de Virtual Threads no servidor embutido (Tomcat) e anotações assíncronas (`@Async`), basta configurar no `src/main/resources/application.yml`:
+## Spring Boot
 
 ```yaml
 spring:
   threads:
     virtual:
       enabled: true
-  application:
-    name: paralelismo-virthr
+  task:
+    execution:
+      mode: force
 ```
+
+A propriedade habilita VT no Tomcat embutido e no `AsyncTaskExecutor` auto-configurado. `@Async` ainda exige `@EnableAsync`. `mode: force` evita que o bean `ExecutorService` deste projeto desligue essa auto-configuração.
 
 ---
 
-## 📊 Observabilidade em Produção
+## Observabilidade
 
 ```bash
-# Gerar thread dump oficial com Virtual Threads (jcmd)
 jcmd <PID> Thread.dump_to_file -format=json thread_dump.json
-jcmd <PID> Thread.dump_to_file -format=text thread_dump.txt
+
+# JFR em produção
+java -XX:StartFlightRecording=filename=vt.jfr,settings=profile \
+     -jar app.jar
 ```
 
----
+Alertar `jdk.VirtualThreadPinned` (pinning residual, tipicamente JNI/FFM) e `jdk.VirtualThreadSubmitFailed` (qualquer ocorrência é crítica).
 
-## 📄 Licença
-
-Este projeto é distribuído sob os termos da licença [MIT](LICENSE).
+Em container: subir `-Xmx` (stack de VT mora na heap), CPU limit ≥ 2, `ulimit` de file descriptor alto.

@@ -8,28 +8,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
 /**
- * Configuração de Virtual Threads para a aplicação Spring Boot.
+ * Executor compartilhado de Virtual Threads para pipelines de CompletableFuture.
+ * <p>
+ * {@code spring.threads.virtual.enabled=true} já coloca o Tomcat e o
+ * {@code AsyncTaskExecutor} auto-configurado em VT (Java 21+ / Boot 4).
+ * Este bean existe para injeção explícita em {@code supplyAsync(..., executor)}.
+ * {@code spring.task.execution.mode=force} evita que este {@link ExecutorService}
+ * substitua o executor auto-configurado do Boot.
+ * <p>
+ * {@code destroyMethod = "close"} faz shutdown + awaitTermination (Java 19+).
  */
 @Configuration
 public class VirtualThreadConfig {
 
-    /**
-     * Cria um ExecutorService global e compartilhado de Virtual Threads.
-     * <p>
-     * NOTA IMPORTANTE: No Spring Boot 3.2+ / 4.x com Java 21, basta definir
-     * spring.threads.virtual.enabled=true no application.yml para habilitar
-     * VTs em toda a aplicação nativamente (Tomcat, @Async, etc).
-     * <p>
-     * Caso você precise de um ExecutorService customizado para ser injetado,
-     * crie este bean.
-     * <p>
-     * Regras aplicadas:
-     * 1. destroyMethod = "close" garante o shutdown correto (equivalente ao try-with-resources).
-     * 2. VTs sempre nomeadas para observabilidade.
-     * 3. Sem pooling! VTs são feitas para serem criadas on-demand por tarefa.
-     * 4. O executor criado aqui deve ser COMPARTILHADO e reutilizado via injeção de dependência,
-     * evitando criação manual e inline repetida do ExecutorService na aplicação inteira.
-     */
     @Bean(destroyMethod = "close")
     public ExecutorService virtualThreadExecutor() {
         ThreadFactory factory = Thread.ofVirtual().name("vt-shared-", 0).factory();

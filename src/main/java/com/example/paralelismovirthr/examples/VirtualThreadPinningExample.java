@@ -8,107 +8,74 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Exemplo sobre o problema de Pinning (fixação de Carrier Thread) em Virtual Threads no Java 21 LTS.
+ * Pinning no Java 25.
  * <p>
- * O que é Pinning:
- * Uma Virtual Thread (VT) executa sobre uma Platform Thread (chamada de Carrier Thread).
- * Quando a VT faz uma operação bloqueante de I/O, a JVM normalmente "desmonta" (unmount) a VT,
- * liberando a Carrier Thread para rodar outra VT.
- * Porém, no Java 21, se o bloqueio de I/O ocorrer dentro de um bloco 'synchronized' ou método nativo (JNI),
- * a VT não consegue ser desmontada. Ela "fixa" (pins) a Carrier Thread, bloqueando a Platform
- * Thread subjacente de atender outras tarefas.
+ * JEP 491 (Java 24+): {@code synchronized} e {@code Object.wait} <strong>não pinam</strong>
+ * mais a Virtual Thread na carrier. O exemplo com {@code synchronized} abaixo é histórico
+ * e de contenção — não de pinning.
  * <p>
- * Solução no Java 21:
- * Substituir 'synchronized' por 'ReentrantLock' ao realizar I/O ou bloqueios prolongados.
+ * O que ainda pina no 25: JNI/nativo, FFM, class loading em execução, parte do file I/O no Linux.
  * <p>
- * Como detectar Pinning em execução (Recursos Nativos e Estáveis do JDK 21):
- * 1. Propriedade de Sistema da JVM:
- *    -Djdk.tracePinnedThreads=full  -> Imprime stack trace completo no stderr ao pinar
- *    -Djdk.tracePinnedThreads=short -> Imprime apenas os frames problemáticos
+ * {@code ReentrantLock.tryLock(timeout)} continua o padrão quando a seção crítica espera I/O:
+ * monitor não tem timeout e não é interrompível.
  * <p>
- *    Exemplo de execução via Maven:
- *    .\mvnw.cmd test-compile exec:java -Dexec.mainClass="com.example.paralelismovirthr.examples.VirtualThreadPinningExample" -Dexec.jvmArgs="-Djdk.tracePinnedThreads=full"
- * <p>
- *    Exemplo de saída emitida pelo JDK quando ocorre pinning:
- *    {@code
- *    Thread[#23,vt-pin-sync-1,5,main]
- *        java.base/java.lang.VirtualThread$VThreadContinuation.onPinned(VirtualThread.java:185)
- *        java.base/jdk.internal.vm.Continuation.onPinned0(Continuation.java:393)
- *        java.base/java.lang.VirtualThread.parkNanos(VirtualThread.java:631)
- *        java.base/java.lang.Thread.sleep(Thread.java:507)
- *        com.example.paralelismovirthr.examples.VirtualThreadPinningExample.lambda$exemploPinningComSynchronized$0(VirtualThreadPinningExample.java:70) <== PINNED HERE (synchronized)
- *    }
- * <p>
- * 2. Java Flight Recorder (JFR):
- *    O evento 'jdk.VirtualThreadPinned' é ativado por padrão com limiar de 20 ms.
- *    Pode ser gravado em produção com:
- *    -XX:StartFlightRecording=filename=recording.jfr,settings=profile
- *    e analisado visualmente pelo JDK Mission Control (JMC).
+ * Diagnóstico: JFR {@code jdk.VirtualThreadPinned} e {@code jdk.VirtualThreadSubmitFailed}.
+ * {@code -Djdk.tracePinnedThreads} foi removido no Java 24.
  */
 public class VirtualThreadPinningExample {
 
     private static final Object lockObject = new Object();
     private static final ReentrantLock reentrantLock = new ReentrantLock();
 
-    // Padronização com ThreadFactory para nomeação consistente e observabilidade
-    private static final ThreadFactory PINNED_FACTORY = Thread.ofVirtual().name("vt-pin-sync-", 1).factory();
-    private static final ThreadFactory LOCK_FACTORY = Thread.ofVirtual().name("vt-pin-lock-", 1).factory();
+    private static final ThreadFactory SYNC_FACTORY = Thread.ofVirtual().name("vt-sync-", 1).factory();
+    private static final ThreadFactory LOCK_FACTORY = Thread.ofVirtual().name("vt-lock-", 1).factory();
 
     public static void main(String[] args) {
-        System.out.println("=== Diagnóstico de Pinning no Java 21 ===");
-        System.out.println("Dica: Execute com -Djdk.tracePinnedThreads=full para visualizar o stack trace de pinning no console.");
+        System.out.println("=== Locks e pinning no Java 25 (JEP 491) ===");
+        System.out.println("synchronized NÃO pina VT. Ainda serializa e não tem timeout.");
+        System.out.println("Detectar pinning restante: JFR jdk.VirtualThreadPinned / jdk.VirtualThreadSubmitFailed.");
 
-        System.out.println("\n--- 1. Exemplo de Pinning com Synchronized (INCORRETO) ---");
-        exemploPinningComSynchronized();
+        System.out.println("\n--- 1. synchronized com I/O (não pina; serializa sem timeout) ---");
+        exemploSynchronizedComIo();
 
-        System.out.println("\n--- 2. Exemplo Seguro com ReentrantLock (CORRETO) ---");
+        System.out.println("\n--- 2. ReentrantLock com tryLock (timeout + interruptível) ---");
         exemploCorretoComReentrantLock();
     }
 
     /**
-     * O jeito ERRADO no Java 21 para I/O em bloco sincronizado.
-     * Causa o Pinning da Carrier Thread do SO.
+     * Java 25: não causa pinning. Continua ruim para I/O compartilhado porque
+     * milhares de VTs enfileiram no mesmo monitor sem bound de espera.
      */
-    public static void exemploPinningComSynchronized() {
-        try (ExecutorService executor = Executors.newThreadPerTaskExecutor(PINNED_FACTORY)) {
+    public static void exemploSynchronizedComIo() {
+        try (ExecutorService executor = Executors.newThreadPerTaskExecutor(SYNC_FACTORY)) {
             for (int i = 0; i < 3; i++) {
                 executor.submit(() -> {
                     String threadName = Thread.currentThread().getName();
-                    System.out.println(threadName + " tentando entrar no bloco synchronized...");
-
-                    // O bloco synchronized impede que a VT desmonte (unmount) ao bloquear no sleep/I/O
+                    System.out.println(threadName + " tentando entrar no synchronized...");
                     synchronized (lockObject) {
-                        System.out.println(threadName + " executando I/O bloqueante no synchronized (PINNING OCORRENDO)...");
+                        System.out.println(threadName + " em I/O dentro do monitor (sem timeout).");
                         try {
-                            // Simula I/O bloqueante longo
                             Thread.sleep(Duration.ofMillis(300));
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                         }
                     }
-                    System.out.println(threadName + " liberou o synchronized.");
+                    System.out.println(threadName + " saiu do synchronized.");
                 });
             }
         }
     }
 
-    /**
-     * O jeito CORRETO no Java 21 usando ReentrantLock.
-     * Permite que a Virtual Thread seja desmontada (unmounted), mantendo a Carrier Thread livre.
-     */
     public static void exemploCorretoComReentrantLock() {
         try (ExecutorService executor = Executors.newThreadPerTaskExecutor(LOCK_FACTORY)) {
             for (int i = 0; i < 3; i++) {
                 executor.submit(() -> {
                     String threadName = Thread.currentThread().getName();
                     System.out.println(threadName + " tentando obter o ReentrantLock...");
-
                     try {
-                        // Tenta obter o lock com timeout para evitar deadlocks
                         if (reentrantLock.tryLock(2, TimeUnit.SECONDS)) {
                             try {
-                                System.out.println(threadName + " executando I/O bloqueante de forma segura com ReentrantLock...");
-                                // Simula I/O bloqueante. A VT aqui desce da Carrier Thread normalmente (unmount).
+                                System.out.println(threadName + " em I/O com lock com timeout.");
                                 Thread.sleep(Duration.ofMillis(300));
                             } finally {
                                 reentrantLock.unlock();
@@ -120,7 +87,7 @@ public class VirtualThreadPinningExample {
                         Thread.currentThread().interrupt();
                         System.err.println("Thread interrompida: " + e.getMessage());
                     }
-                    System.out.println(threadName + " concluiu com sucesso.");
+                    System.out.println(threadName + " concluiu.");
                 });
             }
         }
